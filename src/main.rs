@@ -15,83 +15,19 @@
         3. undo: clears the last user and agent prompts 
 
 */
-use hyper::body::Buf;
-use hyper::{header, Body, Client, Request};
-use hyper_tls::HttpsConnector;
-use serde_derive::{Deserialize, Serialize};
+mod gemini;
+mod cliutils;
+
 use std::env;
-use std::io::{stdin, stdout, Write};
 
+use crate::gemini::{send_request, GeminiContentMessage, GeminiContentPart, GenerationConfig, GeminiContentRequest};
+use crate::cliutils::{get_user_input, special_commands};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct GeminiContentPart {
-    text: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct GeminiContentMessage {
-    role: String,
-    parts: Vec<GeminiContentPart>,
-}
-
-#[derive(Serialize, Debug)]
-struct GeminiContentRequest {
-    contents: Vec<GeminiContentMessage>,
-    #[serde(rename = "generationConfig")]
-    generation_config: GenerationConfig,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GeminiContentResponse {
-    candidates: Vec<GeminiContentCandidate>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GeminiContentCandidate {
-    content: GeminiContentMessage,
-}
-
-#[derive(Serialize, Debug)]
-struct GenerationConfig {
-    temperature: f64,
-    #[serde(rename = "maxOutputTokens")]
-    max_output_tokens: i32,
-    #[serde(rename = "topP")]
-    top_p: f64,
-    #[serde(rename = "topK")]
-    top_k: i32,
-}
-
-
-fn special_commands(user_text: &str, conversation_history: &mut Vec<GeminiContentMessage>) -> u8 {
-    match user_text.trim().to_lowercase().as_str() {
-        "exit" => {
-            println!("Exiting the program.");
-            return 1;
-        }
-        "clear" => {
-            println!("Chat history cleared.");
-            conversation_history.clear();
-            return 2;
-        }
-        "undo" if conversation_history.len() >= 2 => {
-            conversation_history.pop();
-            conversation_history.pop();
-            println!("Undone last user input and assistant response.");
-            return 2;
-        }
-        _ => {
-            return 0;
-        }
-    }
-}
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
-    let https = HttpsConnector::new();
-    let client = Client::builder().build(https);
     let google_api_key: String = env::var("GOOGLE_API_KEY").unwrap();
     let uri = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={}", google_api_key);
 
@@ -100,14 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut conversation_history: Vec<GeminiContentMessage> = Vec::new();
 
     loop {
-        print!("> ");
-        stdout().flush().unwrap();
-        let mut user_text = String::new();
-        stdin()
-            .read_line(&mut user_text)
-            .expect("Failed to read line");
-
-        println!("");
+        let user_text = get_user_input();
 
         let action = special_commands(&user_text, &mut conversation_history);
 
@@ -136,30 +65,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             generation_config: llm_config,
         };
 
-        let body = Body::from(serde_json::to_vec(&gemini_request)?);
 
-        let req = Request::post(&uri)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(body)
-            .unwrap();
-
-        let res = match client.request(req).await {
-            Ok(response) => response,
-            Err(e) => {
-                eprintln!("Error sending HTTP request: {}", e);
-                return Err(e.into());
+        if let Ok(response) = send_request(&uri, &gemini_request).await {
+            if let Some(candidate) = response.candidates.get(0) {
+                println!(">\x1b[32m<\x1b[0m {}", candidate.content.parts[0].text);
+                conversation_history.push(candidate.content.clone());
             }
-        };
-
-        let body = hyper::body::aggregate(res).await?;
-
-        let json: GeminiContentResponse = serde_json::from_reader(body.reader())?;
-        
-        if let Some(candidate) = json.candidates.get(0) {
-            println!("gemini-pro: {}", candidate.content.parts[0].text);
-            conversation_history.push(candidate.content.clone());
+        } else {
+            println!(">\x1b[31m<\x1b[0m Error processing request. Please try again.");
         }
-
     }
 
     Ok(())
