@@ -1,4 +1,4 @@
-# `rust-gemini-pro`
+# `gemini-cli`
 
 Simple chat routine to interact with Googles gemini-pro LLM.
 
