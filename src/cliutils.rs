@@ -1,4 +1,5 @@
 use std::io::{stdin, stdout, Write};
+use std::io::BufRead;
 
 use crate::gemini::GeminiContentMessage;
 
@@ -7,8 +8,21 @@ use crate::gemini::GeminiContentMessage;
 pub fn get_user_input() -> String {
     print!("> ");
     stdout().flush().unwrap();
+    let mut lines = stdin().lock().lines();
     let mut user_text = String::new();
-    stdin().read_line(&mut user_text).expect("Failed to read line");
+    //stdin().read_line(&mut user_text).expect("Failed to read line");
+    while let Some(line) = lines.next() {
+        match line {
+            Ok(line) => {
+                user_text.push_str(&line);
+                user_text.push('\n');
+                }
+            Err(_) => {
+        //        eprintln!("Error: {}", err);
+                }
+            }
+        }
+
     return user_text
 }
 
