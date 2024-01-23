@@ -15,7 +15,7 @@ pub fn get_user_input() -> String {
         match line {
             Ok(line) => {
                 user_text.push_str(&line);
-                user_text.push('\n');
+//                user_text.push('\n');
                 }
             Err(_) => {
         //        eprintln!("Error: {}", err);
